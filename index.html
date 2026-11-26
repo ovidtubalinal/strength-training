@@ -46,6 +46,10 @@ button{cursor:pointer}
 .exhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .exhead h2{font-family:var(--f-display);font-weight:700;font-size:24px;line-height:1.05;margin:0;flex:1 1 220px}
 .target{font-family:var(--f-display);font-weight:600;font-size:18px;color:var(--accent);white-space:nowrap}
+.wl{margin:4px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.wl li{cursor:pointer;padding:4px 6px;border-radius:8px}
+.wl li.wnow{background:color-mix(in srgb,var(--accent) 18%,transparent)}
+.wl li.wdone b{text-decoration:line-through;color:var(--muted)}
 .hold{display:flex;gap:8px;align-items:flex-start;margin:8px 0 2px;font-size:13.5px;font-weight:600}
 .dbn{flex:none;min-width:30px;text-align:center;border-radius:6px;padding:1px 6px;background:var(--accent);color:#111;font-family:var(--f-display);font-weight:700;font-size:15px}
 .cue{margin:4px 0 8px;color:var(--muted);font-size:13.5px}
@@ -144,6 +148,14 @@ const DAYS = {
   B:{name:"Workout B",dow:"Wed",list:[["pike",3,6,15],["borow",4,15,30],["revlunge",3,12,20],["slbridge",3,12,20],["ohtri",3,12,25],["yraise",2,12,20]]},
   C:{name:"Workout C",dow:"Fri",list:[["pushup",4,8,20,"Slow (3-sec lowering)"],["sarow",4,15,30],["bss",3,8,15,"1.5 reps"],["slrdl",3,10,20],["revfly",3,15,25],["calf",3,12,20],["curl",2,12,25]]}
 };
+const WARM = [
+  ["Arm circles",60,"30 s forward, 30 s backward. Start small, finish big."],
+  ["Hip circles",30,"Hands on hips, 15 s each direction."],
+  ["Leg swings",45,"Hold a wall. 10 front-to-back swings per leg."],
+  ["Cat-cow",30,"On hands and knees, round then arch the back slowly. About 8 reps."],
+  ["Bodyweight squats",45,"10 slow squats, full depth, heels down."],
+  ["Slow push-ups",30,"5 slow reps, the same way you'll do them today (knuckles if you use them)."]
+];
 const UNIT = {bw:"added kg",db1:"kg",db2:"kg each (×2)"};
 const DEF_W = {bw:0,db1:5,db2:5};
 const RIRL = ["fail","1 left","2 left","3 left","4+ left"];
@@ -208,6 +220,14 @@ function renderLog(){
     <b style="color:var(--blue)">4+</b><span>Warm-up effort.</span></div>
     <p class="small muted" style="margin:8px 0 0">Progress = <b style="color:var(--fg)">estimated max reps</b> (reps done + reps left), compared at the same weight and version. If it goes up, you're getting stronger — even if the reps look the same.</p></details>
   </section>`;
+  const wd=warmDone[curDate]||[];
+  const wAll=wd.length>=WARM.length&&wd.every(Boolean);
+  h+=`<section class="card ex ${wAll?'done':wd.some(Boolean)?'active':''}" id="warm">
+    <div class="exhead"><h2>Warm-up</h2><span class="target">~4 min</span></div>
+    <div class="cue">Mornings are stiffer, so don't skip it. Tap "Start" and follow the timer — it moves to the next step on its own.</div>
+    <ol class="wl">${WARM.map((w,i)=>`<li class="${wd[i]?'wdone':''} ${warmOn&&wIdx===i?'wnow':''}" data-w="${i}"><b>${w[0]}</b> <span class="muted">${Math.round(w[1])} s</span><br><span class="small muted">${w[2]}</span></li>`).join('')}</ol>
+    <div class="row" style="margin-top:8px"><button class="btn main" id="wstart">${warmOn?'Restart':wAll?'Do it again':'Start warm-up'}</button>${wAll?'<span class="small" style="color:var(--green)">✓ Warm-up done</span>':''}</div>
+  </section>`;
   d.list.forEach((spec,i)=>{
     const [id,ns,lo,hi]=spec, x=EX[id], e=ensure(id,spec);
     const p=prevFor(id,curDate), ps=prevSame(id,curDate,e.w,e.v);
@@ -261,10 +281,14 @@ function feedback(id,e,lo,hi){
 
 // ---------- events ----------
 document.addEventListener('click',ev=>{
+  const li=ev.target.closest&&ev.target.closest('.wl li');
+  if(li&&!warmOn){const i=+li.dataset.w;warmDone[curDate]=warmDone[curDate]||[];warmDone[curDate][i]=!warmDone[curDate][i];saveWarm();render();return;}
+
   const t=ev.target.closest('button');if(!t)return;
   if(t.closest('#tabs')){view=t.dataset.v;render();return;}
   if(t.closest('#dsel')){curDay=t.dataset.d;render();return;}
-  const card=t.closest('.ex');if(!card)return;
+  if(t.id==='wstart'){startWarm(0);return;}
+  const card=t.closest('.ex');if(!card||!card.dataset.id)return;
   const id=card.dataset.id, spec=DAYS[curDay].list.find(s=>s[0]===id), e=ensure(id,spec), act=t.dataset.act;
   const row=t.closest('.set'), j=row?+row.dataset.j:null;
   if(act==='w-'||act==='w+'){e.w=Math.max(0,Math.round((e.w+(act==='w+'?0.5:-0.5))*2)/2);}
@@ -304,9 +328,36 @@ function nextEx(id){const l=DAYS[curDay].list;const i=l.findIndex(s=>s[0]===id);
 function nextLabel(id,e){const j=e.sets.findIndex(x=>!x.done);if(j>=0)return EX[id].n+' — set '+(j+1);const n=nextEx(id);return n?'Next: '+EX[n].n:'';}
 
 // ---------- rest timer ----------
-let tEnd=0,tInt=null,actx=null;
+let tEnd=0,tInt=null,actx=null,mode='rest';
+let warmDone=store.get('warm',{}), warmOn=false, wIdx=0;
+function saveWarm(){const keep={};Object.keys(warmDone).sort().slice(-14).forEach(k=>keep[k]=warmDone[k]);warmDone=keep;store.set('warm',warmDone);}
+function startWarm(i=0){
+  try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();actx.resume();}catch(e){}
+  warmOn=true;mode='warm';wIdx=i;warmDone[curDate]=warmDone[curDate]||[];
+  $('tplus').textContent='Next';$('tskip').textContent='Stop';
+  runWarmStep();
+}
+function runWarmStep(){
+  const w=WARM[wIdx];tEnd=Date.now()+w[1]*1000;lastSec=null;
+  $('timer').hidden=false;$('timer').classList.remove('go');
+  $('tlab').innerHTML='Warm-up '+(wIdx+1)+'/'+WARM.length+'<b>'+esc(w[0])+'</b>';
+  clearInterval(tInt);tick();tInt=setInterval(tick,250);
+  if(view==='log')render();
+}
+function warmNext(){
+  warmDone[curDate][wIdx]=true;saveWarm();
+  if(wIdx<WARM.length-1){wIdx++;beep(880,.25);runWarmStep();}
+  else{endWarm(true);}
+}
+function endWarm(finished){
+  warmOn=false;mode='rest';clearInterval(tInt);$('timer').hidden=true;lastSec=null;
+  $('tplus').textContent='+15 s';$('tskip').textContent='Done';
+  if(finished){beep(990,.5);if(S.vibe&&navigator.vibrate)navigator.vibrate([200,100,200]);}
+  if(view==='log'){render();if(finished){const f=document.querySelector('.ex[data-id]');if(f)f.scrollIntoView({behavior:'smooth',block:'start'});}}
+}
 function beep(f,d,when=0){if(!S.sound)return;try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();const o=actx.createOscillator(),g=actx.createGain();o.frequency.value=f;o.connect(g);g.connect(actx.destination);const t=actx.currentTime+when;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.4,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.start(t);o.stop(t+d+.05);}catch(e){}}
 function startRest(label){
+  if(mode==='warm')endWarm(false);
   try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();actx.resume();}catch(e){}
   tEnd=Date.now()+S.rest*1000;$('timer').hidden=false;$('timer').classList.remove('go');
   $('tlab').innerHTML='Rest<b>'+esc(label)+'</b>';clearInterval(tInt);tick();tInt=setInterval(tick,250);
@@ -314,6 +365,12 @@ function startRest(label){
 let lastSec=null;
 function tick(){
   const left=Math.ceil((tEnd-Date.now())/1000);
+  if(mode==='warm'){
+    if(left!==lastSec){lastSec=left;if(left>0&&left<=3)beep(660,.12);}
+    const v=Math.max(0,left);$('tl').textContent=Math.floor(v/60)+':'+pad(v%60);
+    if(left<=0)warmNext();
+    return;
+  }
   if(left!==lastSec){lastSec=left;
     if(left>0&&left<=3)beep(660,.12);
     if(left===0){beep(990,.5);if(S.vibe&&navigator.vibrate)navigator.vibrate([200,100,200]);$('timer').classList.add('go');}
@@ -322,8 +379,8 @@ function tick(){
   if(left<=-20)stopRest();
 }
 function stopRest(){clearInterval(tInt);$('timer').hidden=true;lastSec=null;}
-$('tplus').onclick=()=>{tEnd=Math.max(tEnd,Date.now())+15000;$('timer').classList.remove('go');};
-$('tskip').onclick=stopRest;
+$('tplus').onclick=()=>{if(mode==='warm'){warmNext();return;}tEnd=Math.max(tEnd,Date.now())+15000;$('timer').classList.remove('go');};
+$('tskip').onclick=()=>{if(mode==='warm'){endWarm(false);return;}stopRest();};
 
 // ---------- progress view ----------
 let histEx=null;
