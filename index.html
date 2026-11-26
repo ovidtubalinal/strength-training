@@ -99,6 +99,7 @@ details summary{cursor:pointer;font-weight:600}
 .chart{width:100%;height:auto;display:block;margin-top:6px}
 .trend{font-size:13px;margin-top:4px}
 .trend.up{color:var(--green)} .trend.down{color:var(--red)}
+.toast{position:fixed;left:50%;top:max(14px,env(safe-area-inset-top,0px));transform:translateX(-50%);background:var(--green);color:#111;font-weight:600;padding:10px 16px;border-radius:10px;z-index:9;box-shadow:0 4px 16px #0008;max-width:90vw;text-align:center}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 select.sel{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 8px}
 @media (max-width:420px){.set{grid-template-columns:24px 56px minmax(0,1fr) 42px;gap:6px}.num{width:56px}.rir button small{font-size:8.5px}}
@@ -458,7 +459,8 @@ function renderSet(){
       <label class="fld"><input type="checkbox" id="vibe" ${S.vibe?'checked':''}> Vibrate (Android)</label></div>
   </section>
   <section class="card"><h2 style="font-family:var(--f-display);margin:0 0 6px">Backup</h2>
-    <p class="small muted" style="margin:0 0 10px">Your log lives only in this browser on this phone. Clearing browser data deletes it. Save a backup file every week or two.</p>
+    <p class="small muted" style="margin:0 0 10px">Your log lives only in this app on this device. Clearing browser data deletes it. The app saves a backup file to your Downloads folder automatically once a week (on your first tap after opening it), if anything new was logged. You can also save one any time.</p>
+    <p class="small" style="margin:0 0 10px">Last backup: <b>${(()=>{const b=store.get('backup',null);if(!b)return 'never';const d=Math.floor((Date.now()-b.at)/864e5);return d===0?'today':d===1?'yesterday':d+' days ago';})()}</b></p>
     <div class="row"><button class="btn main" id="exp">Save backup file</button>
     <label class="btn" for="imp" style="cursor:pointer">Restore from file</label><input type="file" id="imp" accept=".json,application/json" hidden></div>
     <p class="small muted" id="msg" style="margin:8px 0 0"></p>
@@ -471,13 +473,27 @@ function renderSet(){
       <li>"Est. max reps" = reps + reps left. Compared only at the same weight and version.</li>
       <li>Tap a green ✓ again to edit that set.</li>
     </ul></section>`;
-  $('exp').onclick=exportData;
+  $('exp').onclick=()=>exportData(false);
 }
-function exportData(){
-  const blob=new Blob([JSON.stringify({app:'strength-log',v:1,saved:new Date().toISOString(),sessions,settings:S},null,1)],{type:'application/json'});
+function dataSig(){return Object.values(sessions).reduce((t,s)=>t+Object.values(s.ex).reduce((u,e)=>u+e.sets.filter(x=>x.done).length,0),0);}
+function exportData(auto){
+  const blob=new Blob([JSON.stringify({app:'strength-log',v:1,saved:new Date().toISOString(),sessions:store.get('sessions',{}),settings:S},null,1)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='strength-log-backup-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();
-  $('msg').textContent='Backup saved to your downloads.';
+  store.set('backup',{at:Date.now(),sig:dataSig()});
+  if($('msg'))$('msg').textContent='Backup saved to your Downloads folder.';
+  if(auto)toast('Weekly backup saved to your Downloads folder.');
+  if(view==='set')renderSet();
 }
+function backupDue(){
+  const b=store.get('backup',null), sig=dataSig();
+  if(!sig)return false;
+  if(!b)return true;
+  return Date.now()-b.at>=7*864e5 && sig!==b.sig;
+}
+function toast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),4000);}
+// Browsers only allow a download right after a tap, so the weekly backup runs on the first tap after opening the app.
+let autoTried=false;
+document.addEventListener('pointerup',()=>{if(autoTried)return;autoTried=true;if(backupDue())setTimeout(()=>exportData(true),50);},true);
 function importFile(f){
   if(!f)return;const r=new FileReader();
   r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.sessions)throw 0;
