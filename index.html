@@ -156,6 +156,26 @@ const WARM = [
   ["Bodyweight squats",45,"10 slow squats, full depth, heels down."],
   ["Slow push-ups",30,"5 slow reps, the same way you'll do them today (knuckles if you use them)."]
 ];
+const COOL = {
+  A:[["Chest stretch in a doorway",30,"Forearms on the door frame at shoulder height, step through until you feel it across the chest."],
+     ["Hip flexor, kneeling lunge",60,"Back knee down, tuck the hips under, shift forward a little. Feel it at the front of the back leg's hip.",1],
+     ["Hamstrings",60,"Heel on a low step or chair, leg straight, back flat, hinge forward from the hips.",1],
+     ["Child's pose (lats, upper back)",30,"Kneel, sit back on the heels, reach the arms forward along the floor."],
+     ["Shoulder, arm across the body",60,"Pull one straight arm across the chest with the other hand.",1],
+     ["Biceps against a wall",60,"Arm straight out to the side, palm on the wall, turn the body away.",1]],
+  B:[["Child's pose (lats, upper back)",30,"Kneel, sit back on the heels, reach the arms forward along the floor."],
+     ["Hip flexor, kneeling lunge",60,"Back knee down, tuck the hips under, shift forward a little.",1],
+     ["Glutes, figure-4",60,"On your back, ankle on the opposite knee, pull that thigh toward you.",1],
+     ["Quads, standing",60,"Hold a wall, pull one heel to the glute, knees together, hips tucked.",1],
+     ["Triceps overhead",60,"Hand behind the head between the shoulder blades, other hand gently pushes the elbow.",1],
+     ["Chest stretch in a doorway",30,"Forearms on the door frame at shoulder height, step through."]],
+  C:[["Chest stretch in a doorway",30,"Forearms on the door frame at shoulder height, step through until you feel it across the chest."],
+     ["Hip flexor, kneeling lunge",60,"Back knee down, tuck the hips under, shift forward a little. Feel it at the front of the back leg's hip.",1],
+     ["Hamstrings",60,"Heel on a low step or chair, leg straight, back flat, hinge forward from the hips.",1],
+     ["Calves against a wall",60,"Hands on the wall, one leg back, back heel down, back knee straight.",1],
+     ["Child's pose (lats, upper back)",30,"Kneel, sit back on the heels, reach the arms forward along the floor."],
+     ["Biceps against a wall",60,"Arm straight out to the side, palm on the wall, turn the body away.",1]]
+};
 const UNIT = {bw:"added kg",db1:"kg",db2:"kg each (×2)"};
 const DEF_W = {bw:0,db1:5,db2:5};
 const RIRL = ["fail","1 left","2 left","3 left","4+ left"];
@@ -220,14 +240,7 @@ function renderLog(){
     <b style="color:var(--blue)">4+</b><span>Warm-up effort.</span></div>
     <p class="small muted" style="margin:8px 0 0">Progress = <b style="color:var(--fg)">estimated max reps</b> (reps done + reps left), compared at the same weight and version. If it goes up, you're getting stronger — even if the reps look the same.</p></details>
   </section>`;
-  const wd=warmDone[curDate]||[];
-  const wAll=wd.length>=WARM.length&&wd.every(Boolean);
-  h+=`<section class="card ex ${wAll?'done':wd.some(Boolean)?'active':''}" id="warm">
-    <div class="exhead"><h2>Warm-up</h2><span class="target">~4 min</span></div>
-    <div class="cue">Mornings are stiffer, so don't skip it. Tap "Start" and follow the timer — it moves to the next step on its own.</div>
-    <ol class="wl">${WARM.map((w,i)=>`<li class="${wd[i]?'wdone':''} ${warmOn&&wIdx===i?'wnow':''}" data-w="${i}"><b>${w[0]}</b> <span class="muted">${Math.round(w[1])} s</span><br><span class="small muted">${w[2]}</span></li>`).join('')}</ol>
-    <div class="row" style="margin-top:8px"><button class="btn main" id="wstart">${warmOn?'Restart':wAll?'Do it again':'Start warm-up'}</button>${wAll?'<span class="small" style="color:var(--green)">✓ Warm-up done</span>':''}</div>
-  </section>`;
+  h+=routCard('warm');
   d.list.forEach((spec,i)=>{
     const [id,ns,lo,hi]=spec, x=EX[id], e=ensure(id,spec);
     const p=prevFor(id,curDate), ps=prevSame(id,curDate,e.w,e.v);
@@ -255,10 +268,26 @@ function renderLog(){
       <div class="fb">${feedback(id,e,lo,hi)}</div>
     </section>`;
   });
+  h+=routCard('cool');
   h+=`<p class="small muted" style="text-align:center">Saved automatically on this device. Back it up in Settings now and then.</p>`;
   $('view').innerHTML=h;
 }
 
+function routList(k){return k==='warm'?WARM:COOL[curDay];}
+function rkey(k){return curDate+'|'+(k==='warm'?'warm':curDay+'|cool');}
+function routCard(k){
+  const L=routList(k), wd=routDone[rkey(k)]||[], all=L.every((_,i)=>wd[i]), on=rOn&&rk===k;
+  const mins=Math.round(L.reduce((t,w)=>t+w[1],0)/60);
+  const title=k==='warm'?'Warm-up':'Cool-down', cue=k==='warm'
+    ?"Mornings are stiffer, so don't skip it. Tap Start and follow the timer — it moves to the next step on its own."
+    :"Stretches for today's muscles. Hold at mild tension, never pain, and breathe slowly. Two-sided stretches beep at halfway: switch sides.";
+  return `<section class="card ex ${all?'done':wd.some(Boolean)?'active':''}" id="${k}">
+    <div class="exhead"><h2>${title}</h2><span class="target">~${mins} min</span></div>
+    <div class="cue">${cue}</div>
+    <ol class="wl">${L.map((w,i)=>`<li class="${wd[i]?'wdone':''} ${on&&rIdx===i?'wnow':''}" data-k="${k}" data-w="${i}"><b>${esc(w[0])}</b> <span class="muted">${w[3]?Math.round(w[1]/2)+' s each side':w[1]+' s'}</span><br><span class="small muted">${esc(w[2])}</span></li>`).join('')}</ol>
+    <div class="row" style="margin-top:8px"><button class="btn main" data-start="${k}">${on?'Restart':all?'Do it again':'Start '+title.toLowerCase()}</button>${all?`<span class="small" style="color:var(--green)">✓ ${title} done</span>`:''}</div>
+  </section>`;
+}
 function feedback(id,e,lo,hi){
   const done=e.sets.filter(s=>s.done&&s.r!=null&&s.rir!=null);
   if(!done.length)return'';
@@ -282,12 +311,12 @@ function feedback(id,e,lo,hi){
 // ---------- events ----------
 document.addEventListener('click',ev=>{
   const li=ev.target.closest&&ev.target.closest('.wl li');
-  if(li&&!warmOn){const i=+li.dataset.w;warmDone[curDate]=warmDone[curDate]||[];warmDone[curDate][i]=!warmDone[curDate][i];saveWarm();render();return;}
+  if(li&&!rOn){const k=li.dataset.k,i=+li.dataset.w,rkk=rkey(k);routDone[rkk]=routDone[rkk]||[];routDone[rkk][i]=!routDone[rkk][i];saveRout();render();return;}
 
   const t=ev.target.closest('button');if(!t)return;
   if(t.closest('#tabs')){view=t.dataset.v;render();return;}
   if(t.closest('#dsel')){curDay=t.dataset.d;render();return;}
-  if(t.id==='wstart'){startWarm(0);return;}
+  if(t.dataset.start){startRout(t.dataset.start);return;}
   const card=t.closest('.ex');if(!card||!card.dataset.id)return;
   const id=card.dataset.id, spec=DAYS[curDay].list.find(s=>s[0]===id), e=ensure(id,spec), act=t.dataset.act;
   const row=t.closest('.set'), j=row?+row.dataset.j:null;
@@ -329,35 +358,36 @@ function nextLabel(id,e){const j=e.sets.findIndex(x=>!x.done);if(j>=0)return EX[
 
 // ---------- rest timer ----------
 let tEnd=0,tInt=null,actx=null,mode='rest';
-let warmDone=store.get('warm',{}), warmOn=false, wIdx=0;
-function saveWarm(){const keep={};Object.keys(warmDone).sort().slice(-14).forEach(k=>keep[k]=warmDone[k]);warmDone=keep;store.set('warm',warmDone);}
-function startWarm(i=0){
+let routDone=store.get('routines',{}), rOn=false, rk='warm', rIdx=0, rHalf=false;
+function saveRout(){const keys=Object.keys(routDone).sort().slice(-60),keep={};keys.forEach(k=>keep[k]=routDone[k]);routDone=keep;store.set('routines',routDone);}
+function startRout(k){
   try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();actx.resume();}catch(e){}
-  warmOn=true;mode='warm';wIdx=i;warmDone[curDate]=warmDone[curDate]||[];
+  rOn=true;mode='rout';rk=k;rIdx=0;routDone[rkey(k)]=routDone[rkey(k)]||[];
   $('tplus').textContent='Next';$('tskip').textContent='Stop';
-  runWarmStep();
+  runStep();
 }
-function runWarmStep(){
-  const w=WARM[wIdx];tEnd=Date.now()+w[1]*1000;lastSec=null;
+function runStep(){
+  const w=routList(rk)[rIdx];tEnd=Date.now()+w[1]*1000;lastSec=null;rHalf=false;
   $('timer').hidden=false;$('timer').classList.remove('go');
-  $('tlab').innerHTML='Warm-up '+(wIdx+1)+'/'+WARM.length+'<b>'+esc(w[0])+'</b>';
+  stepLabel(w);
   clearInterval(tInt);tick();tInt=setInterval(tick,250);
-  if(view==='log')render();
+  if(view==='log'){render();const li=document.querySelector(`.wl li[data-k="${rk}"][data-w="${rIdx}"]`);if(li&&rk==='cool')li.scrollIntoView({block:'center',behavior:'smooth'});}
 }
-function warmNext(){
-  warmDone[curDate][wIdx]=true;saveWarm();
-  if(wIdx<WARM.length-1){wIdx++;beep(880,.25);runWarmStep();}
-  else{endWarm(true);}
+function stepLabel(w,sw){$('tlab').innerHTML=(rk==='warm'?'Warm-up ':'Cool-down ')+(rIdx+1)+'/'+routList(rk).length+(w[3]?(sw?' · side 2':' · side 1'):'')+'<b>'+esc(w[0])+'</b>';}
+function routNext(){
+  const L=routList(rk);routDone[rkey(rk)][rIdx]=true;saveRout();
+  if(rIdx<L.length-1){rIdx++;beep(880,.25);runStep();}
+  else endRout(true);
 }
-function endWarm(finished){
-  warmOn=false;mode='rest';clearInterval(tInt);$('timer').hidden=true;lastSec=null;
+function endRout(finished){
+  const k=rk;rOn=false;mode='rest';clearInterval(tInt);$('timer').hidden=true;lastSec=null;
   $('tplus').textContent='+15 s';$('tskip').textContent='Done';
   if(finished){beep(990,.5);if(S.vibe&&navigator.vibrate)navigator.vibrate([200,100,200]);}
-  if(view==='log'){render();if(finished){const f=document.querySelector('.ex[data-id]');if(f)f.scrollIntoView({behavior:'smooth',block:'start'});}}
+  if(view==='log'){render();if(finished&&k==='warm'){const f=document.querySelector('.ex[data-id]');if(f)f.scrollIntoView({behavior:'smooth',block:'start'});}}
 }
 function beep(f,d,when=0){if(!S.sound)return;try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();const o=actx.createOscillator(),g=actx.createGain();o.frequency.value=f;o.connect(g);g.connect(actx.destination);const t=actx.currentTime+when;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.4,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.start(t);o.stop(t+d+.05);}catch(e){}}
 function startRest(label){
-  if(mode==='warm')endWarm(false);
+  if(mode==='rout')endRout(false);
   try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();actx.resume();}catch(e){}
   tEnd=Date.now()+S.rest*1000;$('timer').hidden=false;$('timer').classList.remove('go');
   $('tlab').innerHTML='Rest<b>'+esc(label)+'</b>';clearInterval(tInt);tick();tInt=setInterval(tick,250);
@@ -365,10 +395,12 @@ function startRest(label){
 let lastSec=null;
 function tick(){
   const left=Math.ceil((tEnd-Date.now())/1000);
-  if(mode==='warm'){
+  if(mode==='rout'){
+    const w=routList(rk)[rIdx];
+    if(w[3]&&!rHalf&&left<=w[1]/2){rHalf=true;beep(880,.15);beep(880,.15,.25);stepLabel(w,true);}
     if(left!==lastSec){lastSec=left;if(left>0&&left<=3)beep(660,.12);}
     const v=Math.max(0,left);$('tl').textContent=Math.floor(v/60)+':'+pad(v%60);
-    if(left<=0)warmNext();
+    if(left<=0)routNext();
     return;
   }
   if(left!==lastSec){lastSec=left;
@@ -379,8 +411,8 @@ function tick(){
   if(left<=-20)stopRest();
 }
 function stopRest(){clearInterval(tInt);$('timer').hidden=true;lastSec=null;}
-$('tplus').onclick=()=>{if(mode==='warm'){warmNext();return;}tEnd=Math.max(tEnd,Date.now())+15000;$('timer').classList.remove('go');};
-$('tskip').onclick=()=>{if(mode==='warm'){endWarm(false);return;}stopRest();};
+$('tplus').onclick=()=>{if(mode==='rout'){routNext();return;}tEnd=Math.max(tEnd,Date.now())+15000;$('timer').classList.remove('go');};
+$('tskip').onclick=()=>{if(mode==='rout'){endRout(false);return;}stopRest();};
 
 // ---------- progress view ----------
 let histEx=null;
