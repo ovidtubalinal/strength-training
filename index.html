@@ -100,6 +100,9 @@ details summary{cursor:pointer;font-weight:600}
 .trend{font-size:13px;margin-top:4px}
 .trend.up{color:var(--green)} .trend.down{color:var(--red)}
 .toast{position:fixed;left:50%;top:max(14px,env(safe-area-inset-top,0px));transform:translateX(-50%);background:var(--green);color:#111;font-weight:600;padding:10px 16px;border-radius:10px;z-index:9;box-shadow:0 4px 16px #0008;max-width:90vw;text-align:center}
+.syncdot{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:middle;margin-left:4px;background:var(--line)}
+.syncdot.ok{background:var(--green)} .syncdot.busy{background:var(--accent)} .syncdot.offline{background:var(--muted)} .syncdot.err{background:var(--red)} .syncdot.off{display:none}
+.key{width:100%;max-width:420px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-family:ui-monospace,Menlo,monospace;font-size:13px}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 select.sel{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 8px}
 @media (max-width:420px){.set{grid-template-columns:24px 56px minmax(0,1fr) 42px;gap:6px}.num{width:56px}.rir button small{font-size:8.5px}}
@@ -108,7 +111,7 @@ select.sel{background:var(--bg);border:1px solid var(--line);border-radius:8px;p
 <body>
 <div class="app">
   <div class="bar">
-    <div class="brand">Strength Log</div>
+    <div class="brand">Strength Log <span id="syncdot" class="syncdot off"></span></div>
     <div class="seg" id="tabs" role="group" aria-label="View">
       <button data-v="log" aria-pressed="true">Workout</button>
       <button data-v="hist" aria-pressed="false">Progress</button>
@@ -186,7 +189,12 @@ const K='stl.';
 const store={get(k,d){try{const v=localStorage.getItem(K+k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(K+k,JSON.stringify(v))}catch(e){}}};
 let sessions = store.get('sessions',{});   // key "YYYY-MM-DD|A" -> {date,day,ex:{id:{w,v,sets:[{r,rir}]}}}
 let S = Object.assign({rest:90,sound:true,vibe:true},store.get('settings',{}));
-const save=()=>{const out={};for(const k in sessions){const s=sessions[k];if(Object.values(s.ex).some(e=>e.sets.some(x=>x.done||x.r!=null)))out[k]=s;}store.set('sessions',out);};
+const hasData=s=>Object.values(s.ex).some(e=>e.sets.some(x=>x.done||x.r!=null));
+const body=s=>JSON.stringify({d:s.date,y:s.day,ex:s.ex});
+let snap={}; for(const k in sessions)snap[k]=body(sessions[k]);
+const save=(noSync)=>{const out={};let changed=false;
+  for(const k in sessions){const s=sessions[k];if(!hasData(s))continue;const b=body(s);if(snap[k]!==b){s.u=Date.now();snap[k]=b;changed=true;}out[k]=s;}
+  store.set('sessions',out);if(changed&&!noSync&&typeof queueSync==='function')queueSync();};
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -458,6 +466,15 @@ function renderSet(){
     <div class="row" style="margin-bottom:10px"><label class="fld"><input type="checkbox" id="sound" ${S.sound?'checked':''}> Beeps</label>
       <label class="fld"><input type="checkbox" id="vibe" ${S.vibe?'checked':''}> Vibrate (Android)</label></div>
   </section>
+  <section class="card"><h2 style="font-family:var(--f-display);margin:0 0 6px">Sync between devices</h2>
+    ${SY.token?`<p class="small" style="margin:0 0 10px" id="synctext">${esc(syncText())}</p>
+      <p class="small muted" style="margin:0 0 10px">Your log is saved to a secret file on your GitHub account and syncs automatically whenever this device is online: when you open the app and a few seconds after each change.</p>
+      <div class="row"><button class="btn main" id="syncnow">Sync now</button><button class="btn" id="syncoff">Disconnect this device</button></div>`
+    :`<p class="small muted" style="margin:0 0 10px">Connect each device with the same GitHub access key and your log syncs between them automatically.</p>
+      <input class="key" id="tok" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste access key (ghp_…)">
+      <div class="row" style="margin-top:8px"><button class="btn main" id="syncon">Connect</button></div>
+      <p class="small" id="syncmsg" style="margin:8px 0 0;color:var(--accent)"></p>`}
+  </section>
   <section class="card"><h2 style="font-family:var(--f-display);margin:0 0 6px">Backup</h2>
     <p class="small muted" style="margin:0 0 10px">Your log lives only in this app on this device. Clearing browser data deletes it. The app saves a backup file to your Downloads folder automatically once a week (on your first tap after opening it), if anything new was logged. You can also save one any time.</p>
     <p class="small" style="margin:0 0 10px">Last backup: <b>${(()=>{const b=store.get('backup',null);if(!b)return 'never';const d=Math.floor((Date.now()-b.at)/864e5);return d===0?'today':d===1?'yesterday':d+' days ago';})()}</b></p>
@@ -474,6 +491,9 @@ function renderSet(){
       <li>Tap a green ✓ again to edit that set.</li>
     </ul></section>`;
   $('exp').onclick=()=>exportData(false);
+  if($('syncon'))$('syncon').onclick=async()=>{$('syncon').disabled=true;$('syncmsg').textContent='Connecting…';const err=await connectSync($('tok').value);if(err){$('syncmsg').textContent=err;$('syncon').disabled=false;}else{renderSet();render();}};
+  if($('syncnow'))$('syncnow').onclick=()=>sync();
+  if($('syncoff'))$('syncoff').onclick=()=>{if(confirm('Disconnect this device? Your log stays on this device and on GitHub; it just stops syncing here.')){disconnectSync();renderSet();}};
 }
 function dataSig(){return Object.values(sessions).reduce((t,s)=>t+Object.values(s.ex).reduce((u,e)=>u+e.sets.filter(x=>x.done).length,0),0);}
 function exportData(auto){
@@ -506,8 +526,76 @@ function importFile(f){
 function render(){
   document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===view));
   if(view==='log')renderLog();else if(view==='hist')renderHist();else renderSet();
+  if(typeof paintSync==='function')paintSync();
 }
+// ---------- sync (secret GitHub gist) ----------
+const GH='https://api.github.com', GF='strength-log.json';
+let SY=store.get('sync',{}), syncing=false, again=false, syncT=null;
+function ghFetch(path,opt={}){return fetch(GH+path,Object.assign({},opt,{cache:'no-store',headers:Object.assign({'Authorization':'Bearer '+SY.token,'Accept':'application/vnd.github+json'},opt.body?{'Content-Type':'application/json'}:{})}));}
+function setStatus(st,msg){SY.status=st;SY.msg=msg||'';if(st==='ok')SY.at=Date.now();store.set('sync',SY);paintSync();}
+function paintSync(){
+  const el=$('syncdot');if(el){el.className='syncdot '+(SY.token?SY.status||'':'off');el.title=syncText();}
+  const t=$('synctext');if(t)t.textContent=syncText();
+}
+function ago(t){const m=Math.round((Date.now()-t)/60000);return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' days ago';}
+function syncText(){
+  if(!SY.token)return'Sync is off.';
+  if(SY.status==='busy')return'Syncing…';
+  if(SY.status==='offline')return'Offline — will sync when you are back online.'+(SY.at?' Last sync '+ago(SY.at)+'.':'');
+  if(SY.status==='err')return'Sync problem: '+SY.msg;
+  return SY.at?'Synced '+ago(SY.at)+'.':'Connected.';
+}
+function payload(){return JSON.stringify({app:'strength-log',v:1,saved:new Date().toISOString(),sessions:store.get('sessions',{})});}
+function mergeIn(remote){ // returns [pulledAny, localNewer]
+  let pulled=false, newer=false;
+  for(const k in remote){const r=remote[k],l=sessions[k];
+    if(!l||(r.u||0)>(l.u||0)){sessions[k]=r;snap[k]=body(r);pulled=true;}}
+  const cur=store.get('sessions',{});
+  for(const k in sessions){const l=sessions[k];if(!hasData(l))continue;const r=remote[k];if(!r||(l.u||0)>(r.u||0))newer=true;}
+  save(true); return [pulled,newer];
+}
+async function sync(){
+  if(!SY.token||!SY.gist)return;
+  if(syncing){again=true;return;}
+  syncing=true;setStatus('busy');
+  try{
+    const g=await ghFetch('/gists/'+SY.gist);
+    if(g.status===401)throw new Error('the access key was rejected. It may have expired — make a new one and reconnect.');
+    if(g.status===404)throw new Error('the sync file was not found on GitHub. Disconnect and connect again.');
+    if(!g.ok)throw new Error('GitHub answered '+g.status+'.');
+    const j=await g.json();const f=j.files&&j.files[GF];let remote={};
+    if(f){let txt=f.content;if(f.truncated){const rr=await fetch(f.raw_url,{cache:'no-store'});txt=await rr.text();}try{remote=JSON.parse(txt).sessions||{};}catch(e){remote={};}}
+    const [pulled,newer]=mergeIn(remote);
+    if(newer||!f){const u=await ghFetch('/gists/'+SY.gist,{method:'PATCH',body:JSON.stringify({files:{[GF]:{content:payload()}}})});if(!u.ok)throw new Error('could not save to GitHub ('+u.status+').');}
+    setStatus('ok');
+    const typing=document.activeElement&&/INPUT|SELECT/.test(document.activeElement.tagName);
+    if(pulled&&!typing&&!rOn)render();
+  }catch(e){
+    if(e instanceof TypeError||!navigator.onLine)setStatus('offline');else setStatus('err',e.message);
+  }finally{syncing=false;if(again){again=false;setTimeout(sync,500);}}
+}
+function queueSync(){clearTimeout(syncT);syncT=setTimeout(sync,2500);}
+async function connectSync(token){
+  token=(token||'').trim();if(!token){return 'Paste your access key first.';}
+  SY={token};
+  try{
+    const r=await ghFetch('/gists?per_page=100');
+    if(r.status===401){SY={};store.set('sync',SY);return 'GitHub rejected that key. Check you copied all of it.';}
+    if(!r.ok){SY={};store.set('sync',SY);return 'GitHub answered '+r.status+'. Check that the key has the "gist" permission.';}
+    const list=await r.json();const found=list.find(g=>g.files&&g.files[GF]);
+    if(found)SY.gist=found.id;
+    else{const c=await ghFetch('/gists',{method:'POST',body:JSON.stringify({description:'Strength Log data (synced by the app)',public:false,files:{[GF]:{content:payload()}}})});
+      if(!c.ok){SY={};store.set('sync',SY);return 'Could not create the sync file ('+c.status+'). Check that the key has the "gist" permission.';}
+      SY.gist=(await c.json()).id;}
+    store.set('sync',SY);await sync();return '';
+  }catch(e){SY={};store.set('sync',SY);return 'No connection to GitHub. Connect to the internet and try again.';}
+}
+function disconnectSync(){SY={};store.set('sync',SY);paintSync();}
+addEventListener('online',()=>sync());
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')sync();});
+
 render();
+sync();
 </script>
 <script>if('serviceWorker' in navigator&&location.protocol.startsWith('http')){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}</script>
 </body>
